@@ -9,6 +9,9 @@
 -- Access the Lightroom SDK namespaces.
 local LrApplication = import 'LrApplication'
 local LrDialogs = import 'LrDialogs'
+local LrBinding = import "LrBinding"
+local LrFunctionContext = import "LrFunctionContext"
+local LrView = import "LrView"
 
 
 local LrLogger = import 'LrLogger'
@@ -47,19 +50,10 @@ local function getRatingStats()
     for _, photo in ipairs( catPhotos ) do
         count = count+1
         rt = getRating(photo)
-        photo:setRawMetadata('colorNameForLabel', 'none')
-
+--        photo:setRawMetadata('colorNameForLabel', 'none')
 
         rating[rt] = rating[rt]+1
     end
-
-    local info = rating[0].."\n"..rating[1].." *\n"..rating[2].." **\n"..rating[3]
-    info = info.." ***\n"..rating[4].." ****\n"..rating[5].." *****"
-    info = info.."\nTOTAL: "..count
-
-    myLogger:trace("| "..info:gsub("\n"," | "))
-
-    LrDialogs.message( 'Statistics: ', info , 'info');
 
     return rating
 end
@@ -73,7 +67,7 @@ local function permute(tab, n, count)
     return tab
 end
 
-local function markForPrinting(photos, n)
+local function markForPrinting(photos, n, collection)
     count = n
     for _, photo in ipairs(photos) do
         name = photo:getFormattedMetadata( 'fileName' )
@@ -86,7 +80,18 @@ local function markForPrinting(photos, n)
 
 end
 
-local function pick(n, withrating)
+function getCollection(name)
+     myLogger.trace("Getting collection ["..name.."]")
+
+     for i,v in ipairs(catalog:getChildCollections()) do
+        if name == v:getName() then
+            myLogger.trace("Collection ["..name.."] found.")
+            return v
+        end
+     end
+end
+
+function pick(n, withrating, collection)
     myLogger:trace("Picking "..n.." with "..withrating.." stars")
 
     local wr = {}
@@ -102,36 +107,138 @@ local function pick(n, withrating)
 
     if count == 0 then return 0 end
 
-    catalog:withWriteAccessDo('Picking files for printing', function()
-        if n >= count then
-            myLogger:trace("Marking all "..count.." files for printing")
-            markForPrinting(wr, count)
-        else
-            myLogger:trace("Marking RANDOMLY "..n.." files for printing")
-            permute(wr, count, n)
-            markForPrinting(wr, n)
+    if n >= count then
+        myLogger:trace("Adding "..#wr.." photos from table ")
+        collection:addPhotos(wr)
+    else
+        myLogger:trace("Coosing RANDOMLY "..n.." files for printing")
+        permute(wr, count, n)
+
+        local wr2 = {}
+        count2 = n
+        for _, photo in ipairs(wr) do
+            table.insert(wr2, photo)
+            count2 = count2-1
+            if count2 <= 0 then
+                collection:addPhotos(wr2)
+                return n
+            end
         end
-    end)
+
+    end
+
     return count
 end
 
-local function pick2Print(howmany)
-    myLogger:trace("***********************************************************")
 
-    import 'LrTasks'.startAsyncTask( function()
-        local rating = catalog:withWriteAccessDo('Calculating rating stats', getRatingStats)
-        local hm = howmany
+function pick2print()
 
-        for i = 5,1,-1 do
-            hm = hm - pick(hm, i)
-            if hm <= 0 then break end
+import 'LrTasks'.startAsyncTask( function()
+    LrFunctionContext.callWithContext( "Pick2print", function( context )
+        local rating = getRatingStats()
+        local count = 0
+        for i = 0,5 do
+            count = count+rating[i]
         end
 
-        LrDialogs.message( 'Just finished!', 'Thank you' , 'info')
+        local info = rating[0].."\t-\n"..rating[1].."\t*\n"..rating[2].."\t**\n"..rating[3]
+        info = info.."\t***\n"..rating[4].."\t****\n"..rating[5].."\t*****"
+        info = info.."\nTOTAL: "..count
 
+
+        local f = LrView.osFactory() -- obtain view factory
+
+        local properties = LrBinding.makePropertyTable( context )
+        properties.col_name = "toBePrinted"
+        properties.nphotos = 210
+--        properties.rating_stats = info
+
+        local contents = f:column { -- define view hierarchy
+            spacing = f:control_spacing(),
+            f:row {
+                spacing = f:label_spacing(),
+                f:static_text {
+                    title = "Rating statistics:",
+                    alignment = "right",
+                    width = LrView.share "label_width", -- the shared binding
+                },
+                f:edit_field {
+                    width_in_chars = 12,
+                    height_in_lines = 7,
+                    enabled = false,
+                    value = info,
+                    font = '<system/small>',
+                },
+            },
+            f:row {
+                spacing = f:label_spacing(),
+                bind_to_object = properties,
+                f:static_text {
+                    title = "Collection Name:",
+                    alignment = "right",
+                    width = LrView.share "label_width", -- the shared binding
+                },
+                f:edit_field {
+                    width_in_chars = 12,
+                    value = LrView.bind( 'col_name' ),
+                },
+            },
+            f:row {
+                spacing = f:label_spacing(),
+                bind_to_object = properties,
+                f:static_text {
+                    title = "No. of photos:",
+                    alignment = "right",
+                    width = LrView.share "label_width", -- the shared binding
+                },
+                f:edit_field {
+                    width_in_chars = 12,
+                    value = LrView.bind( 'nphotos' ),
+                },
+            },
+        }
+        local result = LrDialogs.presentModalDialog( -- invoke the dialog
+            {
+                title = "Pick photos to be printed",
+                contents = contents,
+                actionVerb = "Pick",
+            }
+        )
+
+        myLogger:trace("Picking "..properties.nphotos.." photos")
+        if result == "ok" then
+            catalog:withWriteAccessDo('Create collection', function()
+                collection = catalog:createCollection(properties.col_name, nil, true)
+            end)
+
+            catalog:withWriteAccessDo('Picking files', function()
+                if not catalog.hasWriteAccess then
+                    myLogger:trace("Write access could not be obtained.")
+                else
+                    myLogger:trace("Write access obtained.")
+                    collection:removeAllPhotos()
+
+                    myLogger:trace("Collection "..collection:getName())
+
+                    if collection == nil then
+                        myLogger:trace("Could not find/create collection.")
+                    else
+                        hm = tonumber(properties.nphotos)
+                        for i = 5,1,-1 do
+                            hm = hm - pick(hm, i, collection)
+                            if hm <= 0 then break end
+                        end
+                    end
+                end
+            end)
+            LrDialogs.message( 'Just finished!', 'Thank you' , 'info')
+        end
     end)
+end)
+
 
 
 end
 
-pick2Print(210)
+myLogger:trace("***********************************************************")
+pick2print()
