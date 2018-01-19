@@ -1,13 +1,35 @@
 # pick2print
-Lightroom plugin which will help you to choose photos to be printed. 
+This very simple Adobe Lightroom plugin will help you to choose photos to be printed.  
 
 ## How does it work?
-This plugin _will not_ do the whole work for you. Based on the ranking (no. of stars assigned in Lightroom) it will choose the best photos. It will start from the best ranked photos and continue to the lower ranked ones. If 15 photos are still needed and currently analyzed rank contains 20 photos it will pick 15 photos randomly. Plugin does not include photos with zero stars into selection.
+Obviously, **pick2print** plugin will not do the whole work for you. You will need to 
+review all your photos and rank (e.g assign no. of stars) them according to taste.
+
+Picking photos is done by adding them to a defined _collection_.
+
+Based on the ranking the plugin will choose given number of photos. 
+It will start from the best-ranked photos and continue analysis through the lower ranked ones. 
+ 
+ 
+If number of photos in a rank is lower then number of still needed ones, 
+all will be added to the collection.
+
+If number photos which are still required is lower then number of 
+pictures which have analyzed rank, they will be chosen randomly.    
+
 
 ### Example
 Ranking statistics:
+4\* - 7 photos, 3\* - 15 photos, 3\* - 30 photos, 1\* - 62 photos
 
-## Selection procedure
+No. of photos to be picked: **40**
+
+Plugin will select: all 4\* photos, all 3\* photos and 18 _randomly chosen_ 2\* photos.  
+
+### Selection procedure
 1. Rank your photos
 2. Select set of photos to be considered
-3. Launch plugin
+3. Launch plugin from Lightroom menu 
+4. Review ranking statistcs
+5. Decide no. of photos to be picked and collection name
+6. Continue by cliking '?' button
